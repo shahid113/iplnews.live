@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Latest News</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/@lucide/web@latest"></script>
+</head>
+<body class="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
+    <!-- Header -->
+    <header class="bg-white shadow-md py-6 mb-8">
+        <div class="container mx-auto px-4">
+            <div class="flex items-center justify-center gap-3">
+                <i data-lucide="rss" class="w-8 h-8 text-blue-600"></i>
+                <h1 class="text-4xl font-bold text-gray-900">Latest News</h1>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 pb-12">
+        <!-- Search Bar -->
+        <div class="relative max-w-2xl mx-auto mb-12">
+            <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5"></i>
+            <input 
+                id="search-bar" 
+                type="text" 
+                placeholder="Search news..." 
+                class="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+            >
+        </div>
+
+        <!-- News Grid -->
+        <div id="news-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
+            <!-- Loading Skeleton -->
+            <template id="loading-skeleton">
+                <div class="bg-white rounded-xl shadow-sm p-6 animate-pulse">
+                    <div class="h-48 bg-gray-200 rounded-lg mb-4"></div>
+                    <div class="h-6 bg-gray-200 rounded w-3/4 mb-4"></div>
+                    <div class="h-4 bg-gray-200 rounded w-full mb-2"></div>
+                    <div class="h-4 bg-gray-200 rounded w-2/3"></div>
+                </div>
+            </template>
+        </div>
+
+        <!-- Pagination -->
+        <div id="pagination" class="flex justify-center items-center gap-4"></div>
+    </main>
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        const rssFeeds = [
+            { name: "ESPN Cricinfo", url: "https://www.espncricinfo.com/rss/content/story/feeds/0.xml" },
+            { name: "NDTV Sports", url: "https://feeds.feedburner.com/ndtv/qJNd" },
+            { name: "Times of India", url: "https://timesofindia.indiatimes.com/rssfeeds/4719161.cms" },
+            { name: "Hindustan Times", url: "https://www.hindustantimes.com/rss/sports/cricket/rssfeed.xml" },
+            { name: "Cricbuzz", url: "https://www.cricbuzz.com/rss/news.xml" },
+            { name: "Sportskeeda", url: "https://www.sportskeeda.com/go/cricket/news/feed" }
+        ];
+
+        let allNews = [];
+        let currentPage = 0;
+        const itemsPerPage = 6;
+        const cacheKey = "ipl_news_cache";
+        const cacheDuration = 30 * 60 * 1000; // 30 minutes
+
+        // Show loading state
+        function showLoading() {
+            const container = document.getElementById('news-container');
+            const template = document.getElementById('loading-skeleton');
+            container.innerHTML = '';
+            
+            for (let i = 0; i < 6; i++) {
+                container.appendChild(template.content.cloneNode(true));
+            }
+        }
+
+        // Function to fetch RSS feed and parse items
+        async function fetchRSSFeed(feed) {
+            try {
+                const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(feed.url)}`);
+                const data = await response.json();
+
+                const parser = new DOMParser();
+                const xml = parser.parseFromString(data.contents, "application/xml");
+                const items = xml.querySelectorAll("item");
+
+                return Array.from(items).map(item => {
+                    const title = item.querySelector("title")?.textContent || "No Title";
+                    const link = item.querySelector("link")?.textContent || "#";
+                    let description = item.querySelector("description")?.textContent || "No description available.";
+                    description = description.replace(/<\/?[^>]+(>|$)/g, "").substring(0, 200) + "...";
+
+                    let imageUrl = "";
+                    const mediaContent = item.querySelector("media\\:content, content");
+                    if (mediaContent) imageUrl = mediaContent.getAttribute("url") || "";
+
+                    return { title, link, description, imageUrl, source: feed.name };
+                });
+            } catch (error) {
+                console.error(`Error fetching RSS feed from ${feed.name}:`, error);
+                return [];
+            }
+        }
+
+        // Load news from cache if available and valid
+        function loadCachedNews() {
+            const cachedData = localStorage.getItem(cacheKey);
+            if (cachedData) {
+                const { news, timestamp } = JSON.parse(cachedData);
+                if (Date.now() - timestamp < cacheDuration) {
+                    allNews = news;
+                    displayNews();
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Fetch news from all sources
+        async function fetchAllNews() {
+            showLoading();
+            
+            if (loadCachedNews()) return;
+
+            const newsPromises = rssFeeds.map(feed => fetchRSSFeed(feed));
+            const results = await Promise.all(newsPromises);
+            allNews = results.flat().sort(() => Math.random() - 0.5);
+
+            localStorage.setItem(cacheKey, JSON.stringify({ news: allNews, timestamp: Date.now() }));
+            displayNews();
+        }
+
+        // Display paginated news
+        function displayNews() {
+            const newsContainer = document.getElementById("news-container");
+            newsContainer.innerHTML = "";
+
+            const start = currentPage * itemsPerPage;
+            const paginatedNews = allNews.slice(start, start + itemsPerPage);
+
+            paginatedNews.forEach(news => {
+                const article = document.createElement("article");
+                article.className = "bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden group";
+
+                const imageHtml = news.imageUrl 
+                    ? `<img src="${news.imageUrl}" alt="${news.title}" class="w-full h-48 object-cover">`
+                    : `<div class="w-full h-48 bg-gray-100 flex items-center justify-center">
+                         <i data-lucide="newspaper" class="w-12 h-12 text-gray-400"></i>
+                       </div>`;
+
+                article.innerHTML = `
+                    ${imageHtml}
+                    <div class="p-6">
+                        <h3 class="text-xl font-semibold text-gray-900 mb-3 group-hover:text-blue-600 transition-colors">
+                            <a href="${news.link}" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2">
+                                ${news.title}
+                                <i data-lucide="external-link" class="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                            </a>
+                        </h3>
+                        <p class="text-gray-600 mb-4">${news.description}</p>
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-medium text-blue-600">${news.source}</span>
+                        </div>
+                    </div>
+                `;
+
+                newsContainer.appendChild(article);
+                lucide.createIcons();
+            });
+
+            updatePagination();
+        }
+
+        // Update pagination buttons
+        function updatePagination() {
+            const totalPages = Math.ceil(allNews.length / itemsPerPage);
+            const pagination = document.getElementById("pagination");
+            
+            if (totalPages <= 1) {
+                pagination.innerHTML = '';
+                return;
+            }
+
+            pagination.innerHTML = `
+                <button 
+                    onclick="prevPage()" 
+                    ${currentPage === 0 ? 'disabled' : ''}
+                    class="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition"
+                >
+                    <i data-lucide="chevron-left" class="w-5 h-5"></i>
+                    Previous
+                </button>
+                <span class="text-sm font-medium text-gray-600">
+                    Page ${currentPage + 1} of ${totalPages}
+                </span>
+                <button 
+                    onclick="nextPage()" 
+                    ${currentPage >= totalPages - 1 ? 'disabled' : ''}
+                    class="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition"
+                >
+                    Next
+                    <i data-lucide="chevron-right" class="w-5 h-5"></i>
+                </button>
+            `;
+            
+            lucide.createIcons();
+        }
+
+        // Pagination controls
+        function nextPage() {
+            if (currentPage < Math.ceil(allNews.length / itemsPerPage) - 1) {
+                currentPage++;
+                displayNews();
+            }
+        }
+
+        function prevPage() {
+            if (currentPage > 0) {
+                currentPage--;
+                displayNews();
+            }
+        }
+
+        // Search functionality
+        document.getElementById("search-bar").addEventListener("input", function() {
+            const query = this.value.toLowerCase();
+            const cachedData = JSON.parse(localStorage.getItem(cacheKey));
+            if (cachedData) {
+                allNews = cachedData.news.filter(news => 
+                    news.title.toLowerCase().includes(query) || 
+                    news.description.toLowerCase().includes(query)
+                );
+                currentPage = 0;
+                displayNews();
+            }
+        });
+
+        // Initial load
+        fetchAllNews();
+    </script>
+</body>
+</html>
